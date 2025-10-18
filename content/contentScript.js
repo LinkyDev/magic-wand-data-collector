@@ -48,34 +48,34 @@ let layoutStateLoaded = false;
 let layoutPersistTimer = null;
 
 const LUCIDE_CURSOR_COLOR = "#5c2ec9";
-// Lucide wand + sparkles path (ISC license). Falling back to URI encoding if base64 isn't available.
-const WAND_CURSOR_SVG = `
+const FALLBACK_WAND_SVG = `
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${LUCIDE_CURSOR_COLOR}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="m21 3-6 6" />
-    <path d="m3 21 6-6" />
-    <path d="m15 9 2 2" />
-    <path d="m9 15 2 2" />
-    <path d="M11 7V5" />
-    <path d="M13 7V5" />
-    <path d="M12 6h2" />
-    <path d="M12 6h-2" />
-    <path d="M18 12v-2" />
-    <path d="M18 12h2" />
-    <path d="M4 8H2" />
-    <path d="M5 9V7" />
+    <path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72" />
+    <path d="m14 7 3 3" />
+    <path d="M5 6v4" />
+    <path d="M19 14v4" />
+    <path d="M10 2v2" />
+    <path d="M7 8H3" />
+    <path d="M21 16h-4" />
+    <path d="M11 3H9" />
   </svg>
 `.replace(/\s+/g, " ").trim();
-let WAND_CURSOR_DECL = "";
-try {
-  if (typeof btoa === "function") {
-    WAND_CURSOR_DECL = `url("data:image/svg+xml;base64,${btoa(WAND_CURSOR_SVG)}") 10 10, crosshair`;
+
+function buildCursorDataUri(svgMarkup) {
+  if (!svgMarkup) {
+    return "crosshair";
   }
-} catch (error) {
-  // Ignore and fall back to URI encoding.
+  try {
+    if (typeof btoa === "function") {
+      return `url("data:image/svg+xml;base64,${btoa(svgMarkup)}") 10 10, crosshair`;
+    }
+  } catch (error) {
+    // Ignore encoding issues and fall back to URI encoding.
+  }
+  return `url("data:image/svg+xml,${encodeURIComponent(svgMarkup)}") 10 10, crosshair`;
 }
-if (!WAND_CURSOR_DECL) {
-  WAND_CURSOR_DECL = `url("data:image/svg+xml,${encodeURIComponent(WAND_CURSOR_SVG)}") 10 10, crosshair`;
-}
+
+let WAND_CURSOR_DECL = buildCursorDataUri(FALLBACK_WAND_SVG);
 const MANUAL_CURSOR_DECL = 'url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http://www.w3.org/2000/svg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cpath%20fill%3D%22%23c27e1d%22%20d%3D%22M4%2024l8-8%206%206-8%208H4z%22/%3E%3Cpath%20fill%3D%22%23261b0a%22%20d%3D%22M19.8%206.2l6%206-9.6%209.6-6-6z"/%3E%3Cpath%20fill%3D%22%23f2d09f%22%20d%3D%22M24.6%2011l-3.6-3.6%202.8-2.8c.8-.8%202.1-.8%202.9%200l.7.7c.8.8.8%202.1%200%202.9z"/%3E%3C/svg%3E") 6 6, text';
 
 const styles = `
@@ -420,6 +420,24 @@ const styles = `
 function ensureGlobalStyles() {
   if (document.getElementById("mw-global-style")) {
     return;
+  }
+  if (!WAND_CURSOR_DECL) {
+    const iconSvg = getLucideIconSvg("wand-sparkles", { color: LUCIDE_CURSOR_COLOR });
+    if (iconSvg) {
+      try {
+        if (typeof btoa === "function") {
+          WAND_CURSOR_DECL = `url("data:image/svg+xml;base64,${btoa(iconSvg)}") 10 10, crosshair`;
+        }
+      } catch (error) {
+        // Ignore encoding errors; fallback below.
+      }
+      if (!WAND_CURSOR_DECL) {
+        WAND_CURSOR_DECL = `url("data:image/svg+xml,${encodeURIComponent(iconSvg)}") 10 10, crosshair`;
+      }
+    }
+    if (!WAND_CURSOR_DECL) {
+      WAND_CURSOR_DECL = "crosshair";
+    }
   }
   const style = document.createElement("style");
   style.id = "mw-global-style";
@@ -1701,6 +1719,7 @@ async function initAutoCollectFeature() {
 async function bootstrap() {
   await loadLayoutState();
   ensureUi();
+  ensureWandIcon();
   applyLayoutState();
   attachListeners();
   await initAutoCollectFeature();
