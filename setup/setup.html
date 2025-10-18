@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Magic Wand Setup</title>
+  <link rel="stylesheet" href="setup.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1>Magic Wand Data Collection</h1>
+    <p>Import a CSV, choose the columns to work with, and launch the magic wand workflow.</p>
+  </header>
+
+  <main class="app-main">
+    <section class="card" id="upload-card">
+      <h2>1. Import your CSV</h2>
+      <p>Pick the spreadsheet that lists the URLs you want to visit. The first row must contain column headers.</p>
+      <label class="file-upload">
+        <span>Choose CSV file</span>
+        <input type="file" id="csv-file" accept=".csv,text/csv">
+      </label>
+      <p id="file-name" class="file-name" hidden></p>
+      <div id="preview" class="preview" hidden>
+        <h3>Preview (first 5 rows)</h3>
+        <div class="preview-table-wrapper">
+          <table id="preview-table"></table>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="config-card" hidden>
+      <h2>2. Configure the session</h2>
+      <form id="config-form">
+        <div class="form-grid">
+          <label>
+            Index column
+            <select id="index-column" required></select>
+          </label>
+          <label>
+            URL column
+            <select id="url-column" required></select>
+          </label>
+          <label>
+            Start at row (by index column)
+            <select id="start-row"></select>
+          </label>
+          <label>
+            Input columns
+            <select id="input-columns" multiple size="6" required></select>
+          </label>
+        </div>
+        <div class="options">
+          <label class="checkbox">
+            <input type="checkbox" id="skip-filled" checked>
+            Skip rows where all selected inputs already have values
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" id="save-to-new" checked>
+            Save results into a new CSV copy
+          </label>
+          <label id="output-name-wrapper" class="stack" hidden>
+            Output file name (optional)
+            <input type="text" id="output-name" placeholder="my-data.csv">
+          </label>
+        </div>
+        <footer class="actions">
+          <span id="config-error" class="error" hidden></span>
+          <button type="submit" id="start-button">Start collecting</button>
+        </footer>
+      </form>
+    </section>
+
+    <section class="card" id="session-card" hidden>
+      <h2>Active session</h2>
+      <p id="session-summary"></p>
+      <div class="session-actions">
+        <button id="resume-button">Open collection tab</button>
+        <button id="export-button">Download current CSV</button>
+        <button id="reset-button" class="danger">Reset session</button>
+      </div>
+    </section>
+
+    <section class="card" id="history-card" hidden>
+      <h2>Saved sessions</h2>
+      <p>Pick a previously saved CSV to resume from the same file.</p>
+      <ul id="history-list" class="history-list"></ul>
+      <p id="history-empty" class="muted" hidden>No saved sessions yet.</p>
+    </section>
+  </main>
+
+  <template id="preview-row-template">
+    <tr></tr>
+  </template>
+
+  <script type="module" src="setup.js"></script>
+</body>
+</html>
