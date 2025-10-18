@@ -46,6 +46,8 @@ const DEFAULT_LAYOUT_STATE = {
 let layoutState = JSON.parse(JSON.stringify(DEFAULT_LAYOUT_STATE));
 let layoutStateLoaded = false;
 let layoutPersistTimer = null;
+let lucideModulesPromise = null;
+const lucideIconPromises = new Map();
 
 const LUCIDE_CURSOR_COLOR = "#5c2ec9";
 const FALLBACK_WAND_SVG = `
@@ -77,6 +79,181 @@ function buildCursorDataUri(svgMarkup) {
 
 let WAND_CURSOR_DECL = buildCursorDataUri(FALLBACK_WAND_SVG);
 const MANUAL_CURSOR_DECL = 'url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http://www.w3.org/2000/svg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cpath%20fill%3D%22%23c27e1d%22%20d%3D%22M4%2024l8-8%206%206-8%208H4z%22/%3E%3Cpath%20fill%3D%22%23261b0a%22%20d%3D%22M19.8%206.2l6%206-9.6%209.6-6-6z"/%3E%3Cpath%20fill%3D%22%23f2d09f%22%20d%3D%22M24.6%2011l-3.6-3.6%202.8-2.8c.8-.8%202.1-.8%202.9%200l.7.7c.8.8.8%202.1%200%202.9z"/%3E%3C/svg%3E") 6 6, text';
+
+function buildGlobalStylesContent() {
+  return `
+    .mw-highlight {
+      outline: 2px dashed #5c2ec9 !important;
+      background: rgba(92, 46, 201, 0.12) !important;
+      transition: outline-color 0.1s ease;
+    }
+    html[data-mw-wand="auto"] {
+      cursor: ${WAND_CURSOR_DECL} !important;
+    }
+    html[data-mw-wand="auto"] * {
+      cursor: ${WAND_CURSOR_DECL} !important;
+    }
+    html[data-mw-wand="manual"] {
+      cursor: ${MANUAL_CURSOR_DECL} !important;
+    }
+    html[data-mw-wand="manual"] * {
+      cursor: ${MANUAL_CURSOR_DECL} !important;
+    }
+  `;
+}
+
+function refreshGlobalStyles() {
+  const style = document.getElementById("mw-global-style");
+  if (style) {
+    style.textContent = buildGlobalStylesContent();
+  }
+}
+
+async function loadLucideModules() {
+  if (lucideModulesPromise) {
+    return lucideModulesPromise;
+  }
+  if (!extensionApi?.runtime?.getURL) {
+    lucideModulesPromise = Promise.resolve(null);
+    return lucideModulesPromise;
+  }
+  lucideModulesPromise = (async () => {
+    try {
+      const createElementUrl = extensionApi.runtime.getURL("node_modules/lucide/dist/esm/createElement.js");
+      const wandIconUrl = extensionApi.runtime.getURL("node_modules/lucide/dist/esm/icons/wand-sparkles.js");
+      const [createElementModule, wandIconModule] = await Promise.all([
+        import(createElementUrl),
+        import(wandIconUrl)
+      ]);
+      return {
+        createElement: createElementModule?.default,
+        icons: {
+          "wand-sparkles": wandIconModule?.default ?? null
+        }
+      };
+    } catch (error) {
+      console.warn("Magic Wand: unable to load Lucide modules", error);
+      return null;
+    }
+  })();
+  return lucideModulesPromise;
+}
+
+async function ensureLucideIcon(modules, iconName) {
+  if (!modules || !iconName) {
+    return null;
+  }
+  modules.icons = modules.icons ?? {};
+  if (modules.icons[iconName]) {
+    return modules.icons[iconName];
+  }
+  if (lucideIconPromises.has(iconName)) {
+    return lucideIconPromises.get(iconName);
+  }
+  if (!extensionApi?.runtime?.getURL) {
+    return null;
+  }
+  const loadPromise = (async () => {
+    try {
+      const iconUrl = extensionApi.runtime.getURL(`node_modules/lucide/dist/esm/icons/${iconName}.js`);
+      const iconModule = await import(iconUrl);
+      const iconNode = iconModule?.default ?? null;
+      if (iconNode) {
+        modules.icons[iconName] = iconNode;
+      }
+      return iconNode;
+    } catch (error) {
+      console.warn(`Magic Wand: unable to load Lucide icon "${iconName}"`, error);
+      return null;
+    } finally {
+      lucideIconPromises.delete(iconName);
+    }
+  })();
+  lucideIconPromises.set(iconName, loadPromise);
+  return loadPromise;
+}
+
+function renderLucideIcon(target, iconNode, createElement, options = {}) {
+  if (!target || !iconNode || typeof createElement !== "function") {
+    return null;
+  }
+  const size = Number.parseInt(target.dataset?.lucideSize ?? "", 10);
+  const strokeWidth = Number.parseFloat(target.dataset?.lucideStrokeWidth ?? "");
+  const svg = createElement(iconNode, {
+    width: Number.isFinite(size) && size > 0 ? size : 16,
+    height: Number.isFinite(size) && size > 0 ? size : 16,
+    stroke: options.color ?? LUCIDE_CURSOR_COLOR,
+    "stroke-width": Number.isFinite(strokeWidth) && strokeWidth > 0 ? strokeWidth : 2,
+    "aria-hidden": "true"
+  });
+  if (!(svg instanceof SVGElement)) {
+    return null;
+  }
+  svg.classList.add("mw-lucide-icon");
+  const existingClasses = Array.from(target.classList ?? []);
+  existingClasses.forEach((cls) => {
+    if (cls !== "mw-lucide-placeholder") {
+      svg.classList.add(cls);
+    }
+  });
+  if (target.id) {
+    svg.id = target.id;
+  }
+  if (target.getAttribute("role")) {
+    svg.setAttribute("role", target.getAttribute("role"));
+  }
+  target.replaceWith(svg);
+  return svg;
+}
+
+async function refreshCursorWithLucide(modules) {
+  if (!modules?.createElement || !modules.icons?.["wand-sparkles"]) {
+    return;
+  }
+  try {
+    const svgElement = modules.createElement(modules.icons["wand-sparkles"], {
+      width: 24,
+      height: 24,
+      stroke: LUCIDE_CURSOR_COLOR,
+      "stroke-width": 2
+    });
+    if (!(svgElement instanceof SVGElement)) {
+      return;
+    }
+    const serialized = new XMLSerializer().serializeToString(svgElement);
+    const nextCursor = buildCursorDataUri(serialized);
+    if (nextCursor && nextCursor !== WAND_CURSOR_DECL) {
+      WAND_CURSOR_DECL = nextCursor;
+      refreshGlobalStyles();
+    }
+  } catch (error) {
+    console.warn("Magic Wand: unable to refresh wand cursor", error);
+  }
+}
+
+async function ensureWandIcon() {
+  const modules = await loadLucideModules();
+  if (!modules?.createElement) {
+    return;
+  }
+  const scope = shadow ?? document;
+  const placeholders = scope.querySelectorAll?.("[data-lucide]") ?? [];
+  for (const placeholder of placeholders) {
+    if (placeholder.tagName?.toLowerCase() === "svg") {
+      continue;
+    }
+    const iconName = placeholder.getAttribute("data-lucide");
+    let iconNode = modules.icons?.[iconName] ?? null;
+    if (!iconNode) {
+      iconNode = await ensureLucideIcon(modules, iconName);
+    }
+    if (!iconNode) {
+      continue;
+    }
+    renderLucideIcon(placeholder, iconNode, modules.createElement);
+  }
+  await refreshCursorWithLucide(modules);
+}
 
 const styles = `
   :host {
@@ -418,48 +595,14 @@ const styles = `
 `;
 
 function ensureGlobalStyles() {
-  if (document.getElementById("mw-global-style")) {
+  const existing = document.getElementById("mw-global-style");
+  if (existing) {
+    refreshGlobalStyles();
     return;
-  }
-  if (!WAND_CURSOR_DECL) {
-    const iconSvg = getLucideIconSvg("wand-sparkles", { color: LUCIDE_CURSOR_COLOR });
-    if (iconSvg) {
-      try {
-        if (typeof btoa === "function") {
-          WAND_CURSOR_DECL = `url("data:image/svg+xml;base64,${btoa(iconSvg)}") 10 10, crosshair`;
-        }
-      } catch (error) {
-        // Ignore encoding errors; fallback below.
-      }
-      if (!WAND_CURSOR_DECL) {
-        WAND_CURSOR_DECL = `url("data:image/svg+xml,${encodeURIComponent(iconSvg)}") 10 10, crosshair`;
-      }
-    }
-    if (!WAND_CURSOR_DECL) {
-      WAND_CURSOR_DECL = "crosshair";
-    }
   }
   const style = document.createElement("style");
   style.id = "mw-global-style";
-  style.textContent = `
-    .mw-highlight {
-      outline: 2px dashed #5c2ec9 !important;
-      background: rgba(92, 46, 201, 0.12) !important;
-      transition: outline-color 0.1s ease;
-    }
-    html[data-mw-wand="auto"] {
-      cursor: ${WAND_CURSOR_DECL} !important;
-    }
-    html[data-mw-wand="auto"] * {
-      cursor: ${WAND_CURSOR_DECL} !important;
-    }
-    html[data-mw-wand="manual"] {
-      cursor: ${MANUAL_CURSOR_DECL} !important;
-    }
-    html[data-mw-wand="manual"] * {
-      cursor: ${MANUAL_CURSOR_DECL} !important;
-    }
-  `;
+  style.textContent = buildGlobalStylesContent();
   const host = document.head || document.documentElement;
   host.appendChild(style);
 }
@@ -627,7 +770,11 @@ function updateUi() {
     wandButton.className = "mw-wand-button";
     wandButton.title = `Use wand for ${input.column}`;
   wandButton.setAttribute("aria-label", `Use wand for ${input.column}`);
-    wandButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 3-6 6"></path><path d="m3 21 6-6"></path><path d="m15 9 2 2"></path><path d="m9 15 2 2"></path><path d="M11 7V5"></path><path d="M13 7V5"></path><path d="M12 6h2"></path><path d="M12 6h-2"></path><path d="M18 12v-2"></path><path d="M18 12h2"></path><path d="M4 8H2"></path><path d="M5 9V7"></path></svg>';
+    const wandIconPlaceholder = document.createElement("span");
+    wandIconPlaceholder.className = "mw-lucide-placeholder";
+    wandIconPlaceholder.dataset.lucide = "wand-sparkles";
+    wandIconPlaceholder.dataset.lucideSize = "18";
+    wandButton.appendChild(wandIconPlaceholder);
     wandButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -746,6 +893,8 @@ function updateUi() {
   if (saveExitBtn && saveExitBtn.dataset.pending !== "true") {
     saveExitBtn.disabled = !state;
   }
+
+  void ensureWandIcon();
 }
 
 async function navigateManual(direction) {
@@ -1719,7 +1868,7 @@ async function initAutoCollectFeature() {
 async function bootstrap() {
   await loadLayoutState();
   ensureUi();
-  ensureWandIcon();
+  await ensureWandIcon();
   applyLayoutState();
   attachListeners();
   await initAutoCollectFeature();
