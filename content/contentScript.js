@@ -20,7 +20,8 @@ let autoNavigate = true;
 let lastHighlighted = null;
 const WAND_MODES = {
   AUTO: "auto",
-  MANUAL: "manual"
+  MANUAL: "manual",
+  LINK: "link"
 };
 let wandMode = WAND_MODES.AUTO;
 let manualSelectionPending = false;
@@ -35,6 +36,17 @@ const dragState = {
   target: null,
   lastLeft: null,
   lastTop: null
+};
+
+const COLUMN_INPUT_TYPES = {
+  TEXTAREA: "textarea",
+  PRESETS: "presets",
+  LINK_HREF: "linkHref"
+};
+
+const PRESET_SELECTION_MODES = {
+  SINGLE: "single",
+  MULTIPLE: "multiple"
 };
 
 const UI_LAYOUT_STORAGE_KEY = "mwUiLayoutState";
@@ -91,6 +103,12 @@ function buildGlobalStylesContent() {
       cursor: ${WAND_CURSOR_DECL} !important;
     }
     html[data-mw-wand="auto"] * {
+      cursor: ${WAND_CURSOR_DECL} !important;
+    }
+    html[data-mw-wand="link"] {
+      cursor: ${WAND_CURSOR_DECL} !important;
+    }
+    html[data-mw-wand="link"] * {
       cursor: ${WAND_CURSOR_DECL} !important;
     }
     html[data-mw-wand="manual"] {
@@ -255,6 +273,85 @@ async function ensureWandIcon() {
   await refreshCursorWithLucide(modules);
 }
 
+function normalizePresetValue(value) {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (value === null || value === undefined) {
+    return "";
+  }
+  return String(value).trim();
+}
+
+function splitPresetValues(value) {
+  const normalized = normalizePresetValue(value);
+  if (!normalized) {
+    return [];
+  }
+  return normalized
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
+function joinPresetValues(values) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return "";
+  }
+  return values
+    .map((part) => normalizePresetValue(part))
+    .filter((part) => part.length > 0)
+    .join(";");
+}
+
+function buildPresetDefinitions(rawPresets) {
+  if (!Array.isArray(rawPresets)) {
+    return [];
+  }
+  const result = [];
+  rawPresets.forEach((preset) => {
+    if (!preset || typeof preset !== "object") {
+      return;
+    }
+    const title = normalizePresetValue(preset.title);
+    const value = normalizePresetValue(preset.value || preset.title);
+    if (!value) {
+      return;
+    }
+    result.push({
+      id: preset.id ?? value,
+      title: title || value,
+      value,
+      linked: Boolean(preset.linked),
+      isDefault: Boolean(preset.isDefault)
+    });
+  });
+  return result;
+}
+
+function buildPresetLabelMap(presets) {
+  const map = new Map();
+  presets.forEach((preset) => {
+    const value = normalizePresetValue(preset.value);
+    if (value) {
+      map.set(value, preset.title || value);
+    }
+  });
+  return map;
+}
+
+function getColumnConfig(column, currentState = state) {
+  if (!column || !currentState?.config?.inputColumnSettings) {
+    return null;
+  }
+  return currentState.config.inputColumnSettings[column] ?? null;
+}
+
+function isLinkCaptureColumn(column, currentState = state) {
+  const config = getColumnConfig(column, currentState);
+  return config?.type === COLUMN_INPUT_TYPES.LINK_HREF;
+}
+
 const styles = `
   :host {
     position: fixed;
@@ -275,6 +372,23 @@ const styles = `
     gap: 12px;
     border: 1px solid rgba(93, 99, 118, 0.2);
     backdrop-filter: blur(6px);
+  }
+  .mw-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: rgba(92, 46, 201, 0.12);
+  }
+  .mw-progress-primary {
+    font-size: 14px;
+    font-weight: 700;
+    color: #3a3a47;
+  }
+  .mw-progress-secondary {
+    font-size: 12px;
+    color: #5c2ec9;
   }
   .mw-panel-wrapper {
     position: fixed;
@@ -487,6 +601,72 @@ const styles = `
     padding: 6px 8px;
     font-family: inherit;
   }
+  .mw-entry-presets {
+    gap: 10px;
+  }
+  .mw-preset-container {
+    display: grid;
+    gap: 10px;
+  }
+  .mw-preset-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .mw-preset-button {
+    border: 1px solid rgba(92, 46, 201, 0.3);
+    background: rgba(92, 46, 201, 0.12);
+    color: #5c2ec9;
+    border-radius: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  }
+  .mw-preset-button:hover {
+    background: rgba(92, 46, 201, 0.18);
+    border-color: rgba(92, 46, 201, 0.4);
+  }
+  .mw-preset-button.selected {
+    background: #5c2ec9;
+    border-color: #5c2ec9;
+    color: #ffffff;
+  }
+  .mw-preset-button[data-default="true"]::after {
+    content: " (default)";
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .mw-preset-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 12px;
+    color: #5c2ec9;
+  }
+  .mw-preset-summary-text {
+    flex: 1;
+    min-width: 0;
+  }
+  .mw-preset-clear {
+    border: 1px solid rgba(92, 46, 201, 0.3);
+    background: transparent;
+    color: #5c2ec9;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .mw-preset-clear:hover {
+    background: rgba(92, 46, 201, 0.16);
+  }
+  .mw-preset-clear:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    background: transparent;
+  }
   .mw-wand-button {
     display: inline-flex;
     align-items: center;
@@ -621,6 +801,10 @@ function ensureUi() {
   const panel = document.createElement("div");
   panel.className = "mw-panel";
   panel.innerHTML = `
+    <div class="mw-progress">
+      <span class="mw-progress-primary" id="row-progress-value">Product 0 of 0</span>
+      <span class="mw-progress-secondary" id="domain-progress-value">Domain block: not available</span>
+    </div>
     <div class="mw-controls">
       <div class="mw-toggle">
         <span class="mw-badge">Magic wand <span class="mw-hotkey" title="Shortcut: 3">3</span></span>
@@ -632,6 +816,7 @@ function ensureUi() {
       </div>
       <div class="mw-mode" id="mode-picker">
         <button id="mode-auto" class="active" title="Shortcut: 1">Auto click <span class="mw-hotkey" aria-hidden="true">1</span></button>
+        <button id="mode-link" title="Shortcut: 4">Link URL <span class="mw-hotkey" aria-hidden="true">4</span></button>
         <button id="mode-manual" title="Shortcut: 2">Manual select <span class="mw-hotkey" aria-hidden="true">2</span></button>
       </div>
       <div class="mw-secondary" id="manual-nav" hidden>
@@ -681,6 +866,10 @@ function ensureUi() {
     setWandMode(WAND_MODES.AUTO);
   });
 
+  panel.querySelector("#mode-link").addEventListener("click", () => {
+    setWandMode(WAND_MODES.LINK);
+  });
+
   panel.querySelector("#mode-manual").addEventListener("click", () => {
     setWandMode(WAND_MODES.MANUAL);
   });
@@ -704,10 +893,13 @@ function updateUi() {
   if (!shadow) {
     return;
   }
+  const rowProgressValue = shadow.getElementById("row-progress-value");
+  const domainProgressValue = shadow.getElementById("domain-progress-value");
   const rowInfo = shadow.getElementById("row-info");
   const toggleWand = shadow.getElementById("toggle-wand");
   const toggleAuto = shadow.getElementById("toggle-auto");
   const modeAutoBtn = shadow.getElementById("mode-auto");
+  const modeLinkBtn = shadow.getElementById("mode-link");
   const modeManualBtn = shadow.getElementById("mode-manual");
   const manualNav = shadow.getElementById("manual-nav");
   const prevRow = shadow.getElementById("prev-row");
@@ -716,12 +908,39 @@ function updateUi() {
   const collapsedSummary = shadow.getElementById("collapsed-summary");
   const collapsedLabel = shadow.getElementById("collapsed-label");
   const saveExitBtn = shadow.getElementById("save-exit");
-  const hintText = wandMode === WAND_MODES.AUTO
-    ? "Click text in the page to capture for this field."
-    : "Highlight text, then press Ctrl+C or left-click to capture.";
+  let hintText;
+  if (wandMode === WAND_MODES.AUTO) {
+    hintText = "Click text in the page to capture for this field.";
+  } else if (wandMode === WAND_MODES.LINK) {
+    hintText = "Click a link to capture its URL.";
+  } else {
+    hintText = "Highlight text, then press Ctrl+C or left-click to capture.";
+  }
   const totalRows = state?.totalRows ?? 0;
   const currentRowIndex = state?.currentRowIndex ?? 0;
   const currentInputIndex = state?.currentInputIndex ?? 0;
+  const rowProgress = state?.rowProgress ?? null;
+  const domainProgress = state?.domainProgress ?? null;
+
+  if (rowProgressValue) {
+    const currentNumber = rowProgress?.current ?? (state ? currentRowIndex + 1 : 0);
+    const totalNumber = rowProgress?.total ?? totalRows;
+    if (state && totalNumber > 0) {
+      rowProgressValue.textContent = `Product ${currentNumber} of ${totalNumber}`;
+    } else {
+      rowProgressValue.textContent = "Product 0 of 0";
+    }
+  }
+
+  if (domainProgressValue) {
+    if (state && domainProgress?.domain && domainProgress.total > 0) {
+      domainProgressValue.textContent = `${domainProgress.domain} block: ${domainProgress.current} of ${domainProgress.total}`;
+    } else if (state && domainProgress?.domain) {
+      domainProgressValue.textContent = `${domainProgress.domain} block: 0 of 0`;
+    } else {
+      domainProgressValue.textContent = "Domain block: not available";
+    }
+  }
 
   toggleWand.textContent = wandActive ? "Enabled" : "Disabled";
   toggleWand.classList.toggle("primary", wandActive);
@@ -731,10 +950,18 @@ function updateUi() {
   toggleAuto.classList.toggle("primary", autoNavigate);
   toggleAuto.classList.toggle("secondary", !autoNavigate);
 
-  modeAutoBtn.classList.toggle("active", wandMode === WAND_MODES.AUTO);
-  modeManualBtn.classList.toggle("active", wandMode === WAND_MODES.MANUAL);
-  modeAutoBtn.disabled = wandMode === WAND_MODES.AUTO;
-  modeManualBtn.disabled = wandMode === WAND_MODES.MANUAL;
+  if (modeAutoBtn) {
+    modeAutoBtn.classList.toggle("active", wandMode === WAND_MODES.AUTO);
+    modeAutoBtn.disabled = wandMode === WAND_MODES.AUTO;
+  }
+  if (modeLinkBtn) {
+    modeLinkBtn.classList.toggle("active", wandMode === WAND_MODES.LINK);
+    modeLinkBtn.disabled = wandMode === WAND_MODES.LINK;
+  }
+  if (modeManualBtn) {
+    modeManualBtn.classList.toggle("active", wandMode === WAND_MODES.MANUAL);
+    modeManualBtn.disabled = wandMode === WAND_MODES.MANUAL;
+  }
 
   if (!state || autoNavigate) {
     manualNav.hidden = true;
@@ -758,18 +985,16 @@ function updateUi() {
     const header = document.createElement("div");
     header.className = "mw-entry-header";
 
-  const labelEl = document.createElement("label");
-  labelEl.className = "mw-entry-label";
-  const textareaId = `mw-entry-${index}`;
-  labelEl.setAttribute("for", textareaId);
-  labelEl.textContent = input.column;
+    const labelEl = document.createElement("label");
+    labelEl.className = "mw-entry-label";
+    labelEl.textContent = input.column;
     header.appendChild(labelEl);
 
     const wandButton = document.createElement("button");
     wandButton.type = "button";
     wandButton.className = "mw-wand-button";
     wandButton.title = `Use wand for ${input.column}`;
-  wandButton.setAttribute("aria-label", `Use wand for ${input.column}`);
+    wandButton.setAttribute("aria-label", `Use wand for ${input.column}`);
     const wandIconPlaceholder = document.createElement("span");
     wandIconPlaceholder.className = "mw-lucide-placeholder";
     wandIconPlaceholder.dataset.lucide = "wand-sparkles";
@@ -790,96 +1015,283 @@ function updateUi() {
 
     entry.appendChild(header);
 
-    const textarea = document.createElement("textarea");
-    textarea.dataset.index = String(index);
-  textarea.id = textareaId;
-    textarea.value = input.value ?? "";
-    textarea.addEventListener("change", (event) => {
-      updateInputValue(index, event.target.value);
-    });
-    entry.appendChild(textarea);
+    const columnConfig = state?.config?.inputColumnSettings?.[input.column] ?? null;
+    const presetDefinitions = buildPresetDefinitions(columnConfig?.presets);
+    const selectionMode = columnConfig?.selectionMode === PRESET_SELECTION_MODES.MULTIPLE
+      ? PRESET_SELECTION_MODES.MULTIPLE
+      : PRESET_SELECTION_MODES.SINGLE;
+    const usePresets = columnConfig?.type === COLUMN_INPUT_TYPES.PRESETS && presetDefinitions.length > 0;
 
-    const transformDetails = document.createElement("details");
-    transformDetails.className = "mw-transform";
+    let hintMessage = hintText;
 
-    const summary = document.createElement("summary");
-    summary.textContent = "Auto clean options";
-    transformDetails.appendChild(summary);
+    if (usePresets) {
+      entry.classList.add("mw-entry-presets");
 
-    const transformBody = document.createElement("div");
-    transformBody.className = "mw-transform-body";
+      const allowDefault = selectionMode === PRESET_SELECTION_MODES.SINGLE;
+      const defaultPreset = allowDefault ? presetDefinitions.find((preset) => preset.isDefault) ?? null : null;
+      const hasExplicitNonePreset = presetDefinitions.some((preset) => preset.value.toLowerCase() === "none");
+      const initialValueNormalized = normalizePresetValue(input.value ?? "");
+      let currentValue = initialValueNormalized;
+      let selectedValues = splitPresetValues(currentValue);
+      let hasStoredNone = currentValue.toLowerCase() === "none";
 
-    const regexLabel = document.createElement("label");
-    regexLabel.textContent = "Regex pattern";
-    transformBody.appendChild(regexLabel);
-
-    const regexInput = document.createElement("input");
-    regexInput.type = "text";
-    regexInput.placeholder = "Optional";
-    regexInput.dataset.transform = "regex";
-    transformBody.appendChild(regexInput);
-
-    const flagsLabel = document.createElement("label");
-    flagsLabel.textContent = "Regex flags";
-    transformBody.appendChild(flagsLabel);
-
-    const flagsInput = document.createElement("input");
-    flagsInput.type = "text";
-    flagsInput.placeholder = "e.g. i";
-    flagsInput.maxLength = 6;
-    flagsInput.dataset.transform = "flags";
-    transformBody.appendChild(flagsInput);
-
-    const commaLabel = document.createElement("label");
-    commaLabel.textContent = "Keep comma segments";
-    transformBody.appendChild(commaLabel);
-
-    const commaInput = document.createElement("input");
-    commaInput.type = "number";
-    commaInput.min = "1";
-    commaInput.step = "1";
-    commaInput.placeholder = "Leave blank";
-    commaInput.dataset.transform = "comma";
-    transformBody.appendChild(commaInput);
-
-    const transformHint = document.createElement("p");
-    transformHint.className = "mw-transform-hint";
-    transformHint.textContent = "Matches use the first capture group when available. Enter the number of comma-separated segments to keep (1 keeps text before the first comma).";
-    transformBody.appendChild(transformHint);
-
-    transformDetails.appendChild(transformBody);
-    entry.appendChild(transformDetails);
-
-    const hintEl = document.createElement("span");
-    hintEl.className = "mw-hint";
-    hintEl.textContent = hintText;
-    entry.appendChild(hintEl);
-
-    const transform = columnTransforms[input.column] ?? null;
-    if (transform) {
-      if (transform.regexPattern) {
-        regexInput.value = transform.regexPattern;
+      if (!hasExplicitNonePreset && selectedValues.length === 1 && selectedValues[0].toLowerCase() === "none") {
+        selectedValues = [];
       }
-      if (transform.regexFlags) {
-        flagsInput.value = transform.regexFlags;
+
+      if (selectionMode === PRESET_SELECTION_MODES.SINGLE && selectedValues.length > 1) {
+        selectedValues = [selectedValues[0]];
+        currentValue = joinPresetValues(selectedValues);
       }
-      if (typeof transform.commaLimit === "number") {
-        commaInput.value = String(transform.commaLimit);
+
+      let shouldApplyDefault = false;
+      if (!currentValue && defaultPreset) {
+        const normalizedDefault = normalizePresetValue(defaultPreset.value);
+        if (normalizedDefault) {
+          selectedValues = [normalizedDefault];
+          currentValue = normalizedDefault;
+          hasStoredNone = false;
+          shouldApplyDefault = true;
+        }
       }
-      if (Object.keys(transform).length) {
-        transformDetails.open = true;
+
+      const needsSanitizedPersist = currentValue !== initialValueNormalized && !shouldApplyDefault;
+      if (needsSanitizedPersist) {
+        void updateInputValue(index, currentValue);
+      }
+
+      const labelMap = buildPresetLabelMap(presetDefinitions);
+      const presetContainer = document.createElement("div");
+      presetContainer.className = "mw-preset-container";
+
+      const optionsWrap = document.createElement("div");
+      optionsWrap.className = "mw-preset-options";
+      presetContainer.appendChild(optionsWrap);
+
+      const summary = document.createElement("div");
+      summary.className = "mw-preset-summary";
+      const summaryText = document.createElement("span");
+      summaryText.className = "mw-preset-summary-text";
+      const clearButton = document.createElement("button");
+      clearButton.type = "button";
+      clearButton.className = "mw-preset-clear";
+      clearButton.textContent = "Clear";
+      summary.appendChild(summaryText);
+      summary.appendChild(clearButton);
+      presetContainer.appendChild(summary);
+
+      const presetButtons = [];
+      let interactionPending = false;
+
+      const computeDisplayLabels = (values) => values.map((value) => labelMap.get(value) ?? value);
+
+      const syncPresetUi = () => {
+        const selectedSet = new Set(selectedValues);
+        presetButtons.forEach((button) => {
+          const value = button.dataset.value ?? "";
+          const isSelected = selectionMode === PRESET_SELECTION_MODES.SINGLE
+            ? selectedValues.length === 1 && selectedValues[0] === value
+            : selectedSet.has(value);
+          button.classList.toggle("selected", isSelected);
+          button.setAttribute("aria-pressed", isSelected ? "true" : "false");
+        });
+        if (selectedValues.length) {
+          const display = computeDisplayLabels(selectedValues);
+          summaryText.textContent = `Selected: ${display.join(", ")}`;
+          clearButton.disabled = false;
+        } else if (hasStoredNone) {
+          summaryText.textContent = "Selected: none";
+          clearButton.disabled = false;
+        } else {
+          summaryText.textContent = "No option selected.";
+          clearButton.disabled = true;
+        }
+      };
+
+      const commitPresetValues = async (nextValues) => {
+        const nextList = Array.isArray(nextValues) ? nextValues.map((value) => normalizePresetValue(value)).filter(Boolean) : [];
+        if (selectionMode === PRESET_SELECTION_MODES.SINGLE && nextList.length > 1) {
+          nextList.splice(1);
+        }
+        const storageList = nextList.length > 0 ? nextList : ["none"];
+        const nextSerialized = joinPresetValues(storageList);
+        if (interactionPending) {
+          return;
+        }
+        if (nextSerialized === currentValue) {
+          selectedValues = nextList;
+          hasStoredNone = storageList.length === 1 && storageList[0].toLowerCase() === "none";
+          syncPresetUi();
+          return;
+        }
+        interactionPending = true;
+        selectedValues = nextList;
+        currentValue = nextSerialized;
+        hasStoredNone = storageList.length === 1 && storageList[0].toLowerCase() === "none";
+        syncPresetUi();
+        try {
+          await updateInputValue(index, currentValue);
+        } catch (error) {
+          console.warn("Magic Wand: failed to persist preset selection", error);
+        } finally {
+          interactionPending = false;
+        }
+      };
+
+      presetDefinitions.forEach((preset) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "mw-preset-button";
+        button.dataset.value = preset.value;
+        button.textContent = preset.title || preset.value;
+        button.setAttribute("aria-pressed", "false");
+        if (preset.isDefault) {
+          button.dataset.default = "true";
+          if (!button.title) {
+            button.title = "Default option";
+          }
+        }
+        button.addEventListener("click", () => {
+          const value = button.dataset.value ?? "";
+          if (!value || interactionPending) {
+            return;
+          }
+          if (selectionMode === PRESET_SELECTION_MODES.MULTIPLE) {
+            const nextValues = [...selectedValues];
+            const existingIndex = nextValues.indexOf(value);
+            if (existingIndex === -1) {
+              nextValues.push(value);
+            } else {
+              nextValues.splice(existingIndex, 1);
+            }
+            void commitPresetValues(nextValues);
+          } else {
+            const isSelected = selectedValues.length === 1 && selectedValues[0] === value;
+            void commitPresetValues(isSelected ? [] : [value]);
+          }
+        });
+        presetButtons.push(button);
+        optionsWrap.appendChild(button);
+      });
+
+      clearButton.addEventListener("click", () => {
+        if (interactionPending) {
+          return;
+        }
+        void commitPresetValues([]);
+      });
+
+      entry.appendChild(presetContainer);
+      syncPresetUi();
+
+      if (shouldApplyDefault) {
+        void commitPresetValues([defaultPreset.value]);
+      } else if (!initialValueNormalized && !hasStoredNone) {
+        void commitPresetValues([]);
+      }
+
+      hintMessage = selectionMode === PRESET_SELECTION_MODES.MULTIPLE
+        ? "Toggle multiple buttons to save values separated by ;"
+        : "Click a button to fill this field.";
+    } else {
+      const textareaId = `mw-entry-${index}`;
+      labelEl.setAttribute("for", textareaId);
+
+      const textarea = document.createElement("textarea");
+      textarea.dataset.index = String(index);
+      textarea.id = textareaId;
+      textarea.value = input.value ?? "";
+      textarea.addEventListener("change", (event) => {
+        updateInputValue(index, event.target.value);
+      });
+      entry.appendChild(textarea);
+
+      const transformDetails = document.createElement("details");
+      transformDetails.className = "mw-transform";
+
+      const summary = document.createElement("summary");
+      summary.textContent = "Auto clean options";
+      transformDetails.appendChild(summary);
+
+      const transformBody = document.createElement("div");
+      transformBody.className = "mw-transform-body";
+
+      const regexLabel = document.createElement("label");
+      regexLabel.textContent = "Regex pattern";
+      transformBody.appendChild(regexLabel);
+
+      const regexInput = document.createElement("input");
+      regexInput.type = "text";
+      regexInput.placeholder = "Optional";
+      regexInput.dataset.transform = "regex";
+      transformBody.appendChild(regexInput);
+
+      const flagsLabel = document.createElement("label");
+      flagsLabel.textContent = "Regex flags";
+      transformBody.appendChild(flagsLabel);
+
+      const flagsInput = document.createElement("input");
+      flagsInput.type = "text";
+      flagsInput.placeholder = "e.g. i";
+      flagsInput.maxLength = 6;
+      flagsInput.dataset.transform = "flags";
+      transformBody.appendChild(flagsInput);
+
+      const commaLabel = document.createElement("label");
+      commaLabel.textContent = "Keep comma segments";
+      transformBody.appendChild(commaLabel);
+
+      const commaInput = document.createElement("input");
+      commaInput.type = "number";
+      commaInput.min = "1";
+      commaInput.step = "1";
+      commaInput.placeholder = "Leave blank";
+      commaInput.dataset.transform = "comma";
+      transformBody.appendChild(commaInput);
+
+      const transformHint = document.createElement("p");
+      transformHint.className = "mw-transform-hint";
+      transformHint.textContent = "Matches use the first capture group when available. Enter the number of comma-separated segments to keep (1 keeps text before the first comma).";
+      transformBody.appendChild(transformHint);
+
+      transformDetails.appendChild(transformBody);
+      entry.appendChild(transformDetails);
+
+      const transform = columnTransforms[input.column] ?? null;
+      if (transform) {
+        if (transform.regexPattern) {
+          regexInput.value = transform.regexPattern;
+        }
+        if (transform.regexFlags) {
+          flagsInput.value = transform.regexFlags;
+        }
+        if (typeof transform.commaLimit === "number") {
+          commaInput.value = String(transform.commaLimit);
+        }
+        if (Object.keys(transform).length) {
+          transformDetails.open = true;
+        }
+      }
+
+      regexInput.addEventListener("change", (event) => {
+        void updateColumnTransformSetting(input.column, { regexPattern: event.target.value });
+      });
+      flagsInput.addEventListener("change", (event) => {
+        void updateColumnTransformSetting(input.column, { regexFlags: event.target.value });
+      });
+      commaInput.addEventListener("change", (event) => {
+        void updateColumnTransformSetting(input.column, { commaLimit: event.target.value });
+      });
+
+      if (columnConfig?.type === COLUMN_INPUT_TYPES.LINK_HREF) {
+        hintMessage = "Click a link to capture its URL.";
       }
     }
 
-    regexInput.addEventListener("change", (event) => {
-      void updateColumnTransformSetting(input.column, { regexPattern: event.target.value });
-    });
-    flagsInput.addEventListener("change", (event) => {
-      void updateColumnTransformSetting(input.column, { regexFlags: event.target.value });
-    });
-    commaInput.addEventListener("change", (event) => {
-      void updateColumnTransformSetting(input.column, { commaLimit: event.target.value });
-    });
+    const hintEl = document.createElement("span");
+    hintEl.className = "mw-hint";
+    hintEl.textContent = hintMessage;
+    entry.appendChild(hintEl);
 
     const isActive = currentInput?.column === input.column;
     if (isActive) {
@@ -907,7 +1319,11 @@ async function navigateManual(direction) {
     alert(response?.error ?? "Unable to navigate.");
     return;
   }
-  await refreshState();
+  if (response.state) {
+    applyState(response.state);
+  } else {
+    await refreshState();
+  }
 }
 
 async function saveAndExit() {
@@ -923,8 +1339,7 @@ async function saveAndExit() {
     }
     setWandState(false);
     if (response.state) {
-      state = response.state;
-      updateUi();
+      applyState(response.state);
     } else {
       await refreshState();
     }
@@ -945,15 +1360,32 @@ async function updateInputValue(index, value) {
     return;
   }
   const column = state.config.inputColumns[index];
-  await extensionApi.runtime.sendMessage({
-    type: MESSAGE_TYPES.UPDATE_INPUT_VALUE,
-    payload: {
-      rowIndex: state.currentRowIndex,
-      column,
-      value
+  const columnConfig = getColumnConfig(column, state);
+  const rawValue = typeof value === "string" ? value : value == null ? "" : String(value);
+  const shouldTransform = column && columnConfig?.type !== COLUMN_INPUT_TYPES.PRESETS;
+  const cleanedValue = shouldTransform ? applyColumnTransforms(rawValue, column) : rawValue;
+  const finalValue = typeof cleanedValue === "string" ? cleanedValue.trim() : String(cleanedValue ?? "");
+  try {
+    const response = await extensionApi.runtime.sendMessage({
+      type: MESSAGE_TYPES.UPDATE_INPUT_VALUE,
+      payload: {
+        rowIndex: state.currentRowIndex,
+        column,
+        value: finalValue
+      }
+    });
+    if (response?.ok) {
+      if (response.state) {
+        applyState(response.state);
+      } else {
+        await refreshState();
+      }
+    } else if (response?.error) {
+      console.warn("Magic Wand: update rejected", response.error);
     }
-  });
-  await refreshState();
+  } catch (error) {
+    console.warn("Magic Wand: failed to update input value", error);
+  }
 }
 
 async function focusInputColumn(column) {
@@ -970,9 +1402,9 @@ async function focusInputColumn(column) {
       }
     });
     if (response?.ok && response.state) {
-      state = response.state;
-      updateUi();
-      autoCollectService?.handleStateUpdate?.(state);
+      applyState(response.state);
+    } else if (response?.ok) {
+      await refreshState();
     } else if (response && response.ok === false && response.error) {
       console.warn("Magic Wand: unable to focus column", response.error);
       wandColumnOverride = null;
@@ -1042,8 +1474,9 @@ async function updateColumnTransformSetting(column, patch) {
       }
     });
     if (response?.ok && response.state) {
-      state = response.state;
-      updateUi();
+      applyState(response.state);
+    } else if (response?.ok) {
+      await refreshState();
     } else if (response && response.ok === false && response.error) {
       console.warn("Magic Wand: transform update rejected", response.error);
     }
@@ -1052,17 +1485,23 @@ async function updateColumnTransformSetting(column, patch) {
   }
 }
 
+function applyState(nextState) {
+  state = nextState ?? null;
+  if (state && typeof state.autoNavigate === "boolean") {
+    autoNavigate = state.autoNavigate;
+  } else if (!state) {
+    autoNavigate = true;
+  }
+  updateUi();
+  autoCollectService?.handleStateUpdate?.(state);
+}
+
 async function refreshState() {
   const response = await extensionApi.runtime.sendMessage({ type: MESSAGE_TYPES.GET_STATE });
   if (!response?.ok) {
     return;
   }
-  state = response.state ?? null;
-  if (state && typeof state.autoNavigate === "boolean") {
-    autoNavigate = state.autoNavigate;
-  }
-  updateUi();
-  autoCollectService?.handleStateUpdate?.(state);
+  applyState(response.state ?? null);
 }
 
 async function setAutoNavigateState(enabled, options = {}) {
@@ -1073,19 +1512,28 @@ async function setAutoNavigateState(enabled, options = {}) {
   autoNavigate = normalized;
   updateUi();
   try {
-    await extensionApi.runtime.sendMessage({
+    const response = await extensionApi.runtime.sendMessage({
       type: MESSAGE_TYPES.SET_AUTO_NAVIGATE,
       payload: { enabled: normalized }
     });
+    if (response?.ok && response.state) {
+      applyState(response.state);
+    } else if (response?.ok === false) {
+      console.warn("Magic Wand: auto navigate update rejected", response.error);
+      await refreshState();
+    }
   } catch (error) {
     console.warn("Magic Wand: failed to update auto navigate flag", error);
+    await refreshState();
   }
 }
 
 function setWandMode(mode) {
-  if (!mode || (mode !== WAND_MODES.AUTO && mode !== WAND_MODES.MANUAL)) {
+  const validModes = Object.values(WAND_MODES);
+  if (!mode || !validModes.includes(mode)) {
     return;
   }
+  const previousMode = wandMode;
   if (wandMode === mode) {
     return;
   }
@@ -1096,6 +1544,8 @@ function setWandMode(mode) {
   if (wandMode === WAND_MODES.MANUAL) {
     clearHighlight(lastHighlighted);
     wandColumnOverride = null;
+  } else if (previousMode === WAND_MODES.MANUAL) {
+    clearHighlight(lastHighlighted);
   }
   manualSelectionPending = false;
   manualSelectionText = "";
@@ -1349,16 +1799,26 @@ function applyColumnTransforms(value, column) {
 }
 
 async function captureValue(value, context = {}) {
-  const previousState = state
+  const stateSnapshot = state;
+  const metadata = { ...context };
+  const previousState = stateSnapshot
     ? {
-        rowIndex: state.currentRowIndex,
-        column: state.currentColumn,
-        domain: getCurrentRowDomain(state),
-        url: state.row?.url ?? null
+        rowIndex: stateSnapshot.currentRowIndex,
+        column: stateSnapshot.currentColumn,
+        domain: getCurrentRowDomain(stateSnapshot),
+        url: stateSnapshot.row?.url ?? null
       }
     : null;
-  const targetColumn = context.column ?? wandColumnOverride ?? previousState?.column ?? state?.currentColumn ?? null;
-  const cleaned = applyColumnTransforms(value, targetColumn).trim();
+  const targetColumn = metadata.column
+    ?? wandColumnOverride
+    ?? previousState?.column
+    ?? stateSnapshot?.currentColumn
+    ?? null;
+  if (typeof targetColumn === "string" && targetColumn && !metadata.column) {
+    metadata.column = targetColumn;
+  }
+  const resolvedValue = resolveColumnCaptureValue(value, metadata, targetColumn, stateSnapshot);
+  const cleaned = applyColumnTransforms(resolvedValue, targetColumn).trim();
   if (!cleaned) {
     return;
   }
@@ -1372,15 +1832,19 @@ async function captureValue(value, context = {}) {
       payload
     });
     if (response?.ok) {
-      if (!context.skipAutoCollectRecord) {
+      if (!metadata.skipAutoCollectRecord) {
         autoCollectService?.handleEvent?.("capture-success", {
           value: cleaned,
           column: targetColumn ?? null,
-          context,
+          context: metadata,
           stateBefore: previousState
         });
       }
-      await refreshState();
+      if (response.state) {
+        applyState(response.state);
+      } else {
+        await refreshState();
+      }
       wandColumnOverride = null;
     }
   } catch (error) {
@@ -1404,6 +1868,37 @@ function extractTargetText(target) {
   return typeof text === "string" ? text.trim() : "";
 }
 
+function extractTargetHref(target) {
+  if (!target) {
+    return "";
+  }
+  const element = target instanceof Element ? target : resolveElementFromNode(target);
+  if (!(element instanceof Element)) {
+    return "";
+  }
+  const anchor = element.closest?.("a[href], area[href], [href]") ?? element;
+  if (!(anchor instanceof Element)) {
+    return "";
+  }
+  if (!anchor.hasAttribute("href") && element.hasAttribute?.("href")) {
+    const propertyHref = typeof element.href === "string" ? element.href.trim() : "";
+    if (propertyHref) {
+      return propertyHref;
+    }
+    const attributeHref = element.getAttribute("href");
+    return typeof attributeHref === "string" ? attributeHref.trim() : "";
+  }
+  if (!anchor.hasAttribute("href")) {
+    return "";
+  }
+  const propertyHref = typeof anchor.href === "string" ? anchor.href.trim() : "";
+  if (propertyHref) {
+    return propertyHref;
+  }
+  const attributeHref = anchor.getAttribute("href");
+  return typeof attributeHref === "string" ? attributeHref.trim() : "";
+}
+
 function getSelectedText() {
   const selection = window.getSelection();
   if (selection) {
@@ -1421,6 +1916,43 @@ function getSelectedText() {
     }
   }
   return "";
+}
+
+function resolveColumnCaptureValue(rawValue, metadata, column, stateSnapshot = state) {
+  const baseValue = rawValue == null ? "" : String(rawValue);
+  if (metadata?.attribute === "href") {
+    const explicit = baseValue.trim();
+    if (explicit) {
+      return explicit;
+    }
+    const element = metadata.element instanceof Element
+      ? metadata.element
+      : resolveElementFromNode(metadata.element ?? null);
+    const hrefValue = extractTargetHref(element);
+    if (hrefValue) {
+      return hrefValue;
+    }
+    return baseValue;
+  }
+  if (!column) {
+    return baseValue;
+  }
+  const columnConfig = getColumnConfig(column, stateSnapshot);
+  if (!columnConfig) {
+    return baseValue;
+  }
+  if (columnConfig.type === COLUMN_INPUT_TYPES.LINK_HREF) {
+    const element = metadata?.element instanceof Element
+      ? metadata.element
+      : resolveElementFromNode(metadata?.element ?? null);
+    const hrefValue = extractTargetHref(element);
+    if (hrefValue) {
+      metadata.attribute = "href";
+      return hrefValue;
+    }
+    return baseValue;
+  }
+  return baseValue;
 }
 
 function resolveElementFromNode(node) {
@@ -1529,6 +2061,8 @@ function handleManualCopy(event) {
   if (!wandActive || wandMode !== WAND_MODES.MANUAL) {
     return;
   }
+  const targetColumn = wandColumnOverride ?? state?.currentColumn ?? null;
+  const expectsHref = isLinkCaptureColumn(targetColumn);
   const selection = window.getSelection();
   let element = null;
   if (selection) {
@@ -1540,7 +2074,7 @@ function handleManualCopy(event) {
     element = resolveElementFromSelection(selection);
   }
   const text = getSelectedText();
-  if (!text) {
+  if (!text && !expectsHref) {
     resetManualSelection();
     return;
   }
@@ -1549,7 +2083,8 @@ function handleManualCopy(event) {
   }
   captureValue(text, {
     source: "manualCopy",
-    element: element ?? null
+    element: element ?? null,
+    column: targetColumn ?? undefined
   });
   manualSelectionPending = false;
   manualSelectionText = "";
@@ -1578,6 +2113,11 @@ function handleKeydown(event) {
     event.preventDefault();
     return;
   }
+  if (event.key === "4") {
+    setWandMode(WAND_MODES.LINK);
+    event.preventDefault();
+    return;
+  }
   if (event.key === "3") {
     setWandState(!wandActive);
     event.preventDefault();
@@ -1588,7 +2128,8 @@ function handleMouseMove(event) {
   if (!wandActive) {
     return;
   }
-  if (wandMode !== WAND_MODES.AUTO) {
+  const shouldHighlight = wandMode === WAND_MODES.AUTO || wandMode === WAND_MODES.LINK;
+  if (!shouldHighlight) {
     clearHighlight(lastHighlighted);
     return;
   }
@@ -1620,24 +2161,47 @@ async function handleClick(event) {
   if (wandMode === WAND_MODES.AUTO) {
     event.preventDefault();
     event.stopPropagation();
+    const targetColumn = wandColumnOverride ?? state?.currentColumn ?? null;
+    const expectsHref = isLinkCaptureColumn(targetColumn);
     const text = extractTargetText(target);
-    if (!text) {
+    if (!text && !expectsHref) {
       return;
     }
     await captureValue(text, {
       source: "autoClick",
-      element: target instanceof Element ? target : null
+      element: target instanceof Element ? target : null,
+      column: targetColumn ?? undefined
+    });
+    return;
+  }
+
+  if (wandMode === WAND_MODES.LINK) {
+    event.preventDefault();
+    event.stopPropagation();
+    const targetColumn = wandColumnOverride ?? state?.currentColumn ?? null;
+    const element = target instanceof Element ? target : resolveElementFromNode(target);
+    const hrefValue = extractTargetHref(element);
+    if (!hrefValue) {
+      return;
+    }
+    await captureValue(hrefValue, {
+      source: "linkClick",
+      element: element ?? null,
+      attribute: "href",
+      column: targetColumn ?? undefined
     });
     return;
   }
 
   if (wandMode === WAND_MODES.MANUAL) {
-    if (!manualSelectionPending) {
+    const targetColumn = wandColumnOverride ?? state?.currentColumn ?? null;
+    const expectsHref = isLinkCaptureColumn(targetColumn);
+    if (!manualSelectionPending && !expectsHref) {
       manualSelectionText = "";
       return;
     }
-    const text = manualSelectionText || getSelectedText();
-    if (!text) {
+  const text = (manualSelectionPending ? manualSelectionText : "") || getSelectedText();
+    if (!text && !expectsHref) {
       resetManualSelection();
       return;
     }
@@ -1647,7 +2211,8 @@ async function handleClick(event) {
     const element = selection ? resolveElementFromSelection(selection) : null;
     await captureValue(text, {
       source: "manualSelection",
-      element: element ?? (target instanceof Element ? target : null)
+      element: element ?? (target instanceof Element ? target : null),
+      column: targetColumn ?? undefined
     });
     clearCurrentSelection();
     resetManualSelection();

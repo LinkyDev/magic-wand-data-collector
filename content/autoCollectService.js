@@ -668,16 +668,31 @@ class AutoCollectService {
     if (!selector) {
       return;
     }
-    const mode = determineExtractionMode(element);
+    let extractionMode = determineExtractionMode(element);
+    let attribute = null;
+    const contextAttribute = payload.context?.attribute;
+    if (contextAttribute === "href") {
+      extractionMode = "attribute";
+      attribute = "href";
+    } else if (payload.column) {
+      const columnConfig = this.state?.config?.inputColumnSettings?.[payload.column] ?? null;
+      if (columnConfig?.type === "linkHref") {
+        extractionMode = "attribute";
+        attribute = "href";
+      }
+    }
     const action = {
       type: "capture",
       selector,
-      extractionMode: mode,
+      extractionMode,
       column: payload.column ?? null,
       source: payload.context?.source ?? "unknown",
       preview: truncatePreview(payload.value ?? ""),
       timestamp: Date.now()
     };
+    if (attribute) {
+      action.attribute = attribute;
+    }
     this.actions.push(action);
     this.recordingApprovalSatisfied = false;
     this.recordingCompletionSignature = null;
@@ -920,7 +935,8 @@ class AutoCollectService {
         await this.context.captureValue(value, {
           source: "autoCollectPlayback",
           element,
-          column: action.column ?? null
+          column: action.column ?? null,
+          attribute: action.attribute ?? undefined
         });
       }
       if (!this.playbackActive) {

@@ -28,8 +28,18 @@
       </div>
     </section>
 
+    <section class="card" id="columns-card" hidden>
+      <h2>2. Select input columns</h2>
+      <p>Pick the columns you want to capture and configure how values should be collected for each.</p>
+      <div class="input-columns-field" role="group" aria-labelledby="input-columns-label">
+        <span id="input-columns-label" class="input-columns-label">Input columns</span>
+        <div id="input-columns-list" class="input-columns-list" aria-describedby="input-columns-help"></div>
+        <span id="input-columns-help" class="input-columns-hint">Select the columns to capture and tweak their input behaviour.</span>
+      </div>
+    </section>
+
     <section class="card" id="config-card" hidden>
-      <h2>2. Configure the session</h2>
+      <h2>3. Configure the session</h2>
       <form id="config-form">
         <div class="form-grid">
           <label>
@@ -43,10 +53,6 @@
           <label>
             Start at row (by index column)
             <select id="start-row"></select>
-          </label>
-          <label>
-            Input columns
-            <select id="input-columns" multiple size="6" required></select>
           </label>
         </div>
         <div class="options">

@@ -34,7 +34,8 @@ body {
   display: grid;
   gap: 20px;
   padding: 0 32px 40px;
-  max-width: 960px;
+  max-width: 1160px;
+  margin: 0 auto;
 }
 
 .card {
@@ -109,6 +110,18 @@ label {
   font-size: 14px;
 }
 
+.input-columns-field {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.input-columns-label {
+  font-weight: 600;
+}
+
 select,
 input[type="text"] {
   padding: 8px 10px;
@@ -119,6 +132,348 @@ input[type="text"] {
 
 select[multiple] {
   min-height: 160px;
+}
+
+.lucide-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.input-columns-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-height: 420px;
+  padding: 6px 0;
+  overflow: auto;
+}
+
+.input-columns-hint {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.column-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  background: rgba(90, 46, 201, 0.04);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.column-item.selected {
+  border-color: rgba(90, 46, 201, 0.6);
+  background: rgba(90, 46, 201, 0.1);
+}
+
+.column-item.config-open {
+  border-color: var(--accent);
+}
+
+.column-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.column-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.column-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+
+.column-config-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: rgba(90, 46, 201, 0.12);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.column-config-btn:hover {
+  background: rgba(90, 46, 201, 0.18);
+  border-color: rgba(90, 46, 201, 0.35);
+}
+
+.column-item.config-open .column-config-btn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.column-config-btn svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
+
+.column-config-panel {
+  border-top: 1px dashed rgba(90, 46, 201, 0.25);
+  padding-top: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.config-description {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.config-button-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.config-button {
+  border: 1px solid rgba(90, 46, 201, 0.3);
+  background: transparent;
+  color: var(--accent);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.config-button svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+}
+
+.config-button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.column-presets {
+  display: grid;
+  gap: 12px;
+}
+
+.selection-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.selection-toggle-label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.selection-toggle button {
+  border: 1px solid rgba(90, 46, 201, 0.3);
+  background: transparent;
+  color: var(--accent);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.selection-toggle button svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+}
+
+.selection-toggle button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.preset-row {
+  border: 1px solid rgba(90, 46, 201, 0.25);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(90, 46, 201, 0.05);
+  display: grid;
+  gap: 10px;
+}
+
+.preset-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: end;
+}
+
+.preset-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.preset-field input {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.link-toggle {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid rgba(90, 46, 201, 0.3);
+  background: rgba(90, 46, 201, 0.12);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.link-toggle[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.link-toggle svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
+
+.preset-default {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid rgba(90, 46, 201, 0.3);
+  background: rgba(90, 46, 201, 0.05);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.preset-default:hover {
+  background: rgba(90, 46, 201, 0.12);
+  border-color: rgba(90, 46, 201, 0.4);
+}
+
+.preset-default[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.preset-default svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
+
+.preset-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.preset-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.preset-remove {
+  border: none;
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.preset-remove:hover {
+  background: rgba(194, 48, 44, 0.1);
+}
+
+.preset-remove svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+}
+
+.preset-remove:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: transparent;
+}
+
+.add-preset {
+  border: 1px dashed rgba(90, 46, 201, 0.4);
+  background: rgba(90, 46, 201, 0.08);
+  color: var(--accent);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.add-preset:hover {
+  background: rgba(90, 46, 201, 0.14);
+}
+
+.add-preset svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
 }
 
 .options {

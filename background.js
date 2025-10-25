@@ -37,6 +37,56 @@ function sanitizeValue(value) {
   return String(value).trim();
 }
 
+function normalizeUrlHost(value) {
+  const trimmed = sanitizeValue(value);
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.hostname?.toLowerCase() ?? null;
+  } catch (error) {
+    try {
+      const parsed = new URL(`http://${trimmed}`);
+      return parsed.hostname?.toLowerCase() ?? null;
+    } catch (nestedError) {
+      return null;
+    }
+  }
+}
+
+function computeDomainProgress(session, rowIndex) {
+  if (!session?.rows?.length || rowIndex == null || rowIndex < 0 || rowIndex >= session.rows.length) {
+    return null;
+  }
+  const { config, rows } = session;
+  const domain = normalizeUrlHost(getCellValue(rows[rowIndex], config.urlColumn));
+  if (!domain) {
+    return null;
+  }
+  let start = rowIndex;
+  for (let i = rowIndex - 1; i >= 0; i -= 1) {
+    const previousDomain = normalizeUrlHost(getCellValue(rows[i], config.urlColumn));
+    if (previousDomain !== domain) {
+      break;
+    }
+    start = i;
+  }
+  let end = rowIndex;
+  for (let i = rowIndex + 1; i < rows.length; i += 1) {
+    const nextDomain = normalizeUrlHost(getCellValue(rows[i], config.urlColumn));
+    if (nextDomain !== domain) {
+      break;
+    }
+    end = i;
+  }
+  return {
+    domain,
+    current: rowIndex - start + 1,
+    total: end - start + 1
+  };
+}
+
 function getCellValue(row, column) {
   return row.data[column] ?? "";
 }
@@ -115,7 +165,11 @@ function ensureSession(session) {
 
 function findNextRowIndex(session, startIndex, direction, includeStart) {
   const { rows, config } = session;
-  const { skipFilled, urlColumn } = config;
+  // Default skipFilled to true when not explicitly set (matches setup UI default)
+  const skipFilled = config && Object.prototype.hasOwnProperty.call(config, "skipFilled")
+    ? Boolean(config.skipFilled)
+    : true;
+  const { urlColumn } = config;
   const length = rows.length;
   let index = includeStart ? startIndex : startIndex + direction;
   while (index >= 0 && index < length) {
@@ -137,6 +191,9 @@ function buildContentState(session) {
   }
   const { headers, rows, config, progress } = session;
   ensureColumnTransforms(config);
+  if (!config.inputColumnSettings || typeof config.inputColumnSettings !== "object") {
+    config.inputColumnSettings = {};
+  }
   const { currentRowIndex, currentInputIndex, autoNavigate, completed } = progress;
   const row = rows[currentRowIndex] ?? null;
   const currentColumn = row ? config.inputColumns[currentInputIndex] ?? null : null;
@@ -151,6 +208,18 @@ function buildContentState(session) {
       }
     : null;
 
+  const totalRows = rows.length;
+  const rowProgress = row
+    ? {
+        current: currentRowIndex + 1,
+        total: totalRows
+      }
+    : {
+        current: 0,
+        total: totalRows
+      };
+  const domainProgress = row ? computeDomainProgress(session, currentRowIndex) : null;
+
   return {
     active: progress.active ?? false,
     autoNavigate,
@@ -160,8 +229,10 @@ function buildContentState(session) {
     currentRowIndex,
     currentInputIndex,
     currentColumn,
-    totalRows: rows.length,
-    row: rowPayload
+    totalRows,
+    row: rowPayload,
+    rowProgress,
+    domainProgress
   };
 }
 
@@ -349,6 +420,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
           indexColumn,
           urlColumn,
           inputColumns,
+          inputColumnSettings,
           skipFilled,
           saveToNewFile,
           startRowIndex,
@@ -370,7 +442,8 @@ browser.runtime.onMessage.addListener((message, sender) => {
             indexColumn,
             urlColumn,
             inputColumns,
-            skipFilled,
+            inputColumnSettings: inputColumnSettings ?? {},
+            skipFilled: Boolean(skipFilled),
             saveToNewFile,
             sourceFileName,
             outputFileName,
@@ -686,6 +759,10 @@ browser.runtime.onMessage.addListener((message, sender) => {
           return { ok: false, error: "Saved iteration is empty." };
         }
         session.config = session.config ?? {};
+        // Default skipFilled to true for legacy saved sessions that lack this flag
+        if (!Object.prototype.hasOwnProperty.call(session.config, "skipFilled")) {
+          session.config.skipFilled = true;
+        }
         ensureColumnTransforms(session.config);
         session.config.saveToNewFile = false;
         if (entry.fileName) {
